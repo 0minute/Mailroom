@@ -1,0 +1,7 @@
+﻿process_name_en,process_name_ko
+get_defined_name_list,Data 파일 로딩 완료
+make_data_structure,Table 파일 로딩 완료
+get_value_from_address,DataFrame 생성 완료
+check_data_step_1,output 폴더 생성 완료
+check_data_step_2,Excel 정산서 생성 완료
+check_data_step_3,마무리 작업 완료

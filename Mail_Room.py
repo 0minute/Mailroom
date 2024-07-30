@@ -172,15 +172,11 @@ def Get_Setting_Data(Table_set):
         return Date_, Report_Date, Flat_Rate, Ex_Rate, Ex_Count, Fee
 
 
-def Get_Table_Mailroom(Raw_h,Raw_d,Raw_s,Raw_o,Raw_t,Table_premium,Table_name,Table_account):
+def Get_Table_Mailroom(Raw_h,Raw_d,Raw_s,Raw_o,Raw_t,Table_premium,Table_name,Table_account, Table_price, Table_Formula):
         # 헤더 가공
         header_h = Raw_h.iloc[0]
         Raw_h = Raw_h[1:]
         Raw_h.columns = header_h
-
-        header_o = Raw_o.iloc[0]
-        Raw_o = Raw_o[1:]
-        Raw_o.columns = header_o
 
         Raw_d_rev = Raw_d # 딜리버리 매출 계산용
         
@@ -189,74 +185,49 @@ def Get_Table_Mailroom(Raw_h,Raw_d,Raw_s,Raw_o,Raw_t,Table_premium,Table_name,Ta
         Raw_d.columns = header_d
 
         # 필요없는 열 제거
-        Raw_o = Raw_o[['오더(운송장)번호',
-                        '타임스탬프',
-                        '단건 발송인가요?',
-                        '착불 여부',
-                        '왕복 여부',
-                        '[퀵] 급송 선택',
-                        '신청하는 분 회사명',
-                        '신청하는 분 부서명',
-                        '신청하는 분 이름',
-                        '신청하는 분 연락처',
-                        '출발지 주소(도로명 주소)',
-                        '도착지 주소(도로명 주소)',
-                        '서비스 선택',
-                        '배송 시 유의사항',
-                        '개인 발송 여부',
-                        '배송 메모',
-                        '비고(메일룸 메모)']]
+        # 필요한 열을 선택하여 새로운 DataFrame 생성
+        Raw_o = Raw_o[
+        [
+                '운송장번호', '생성일시', '주문상태', '착불여부', '편도/왕복', '배송수단', '그룹명',
+                '이용사유', '주문자 이름', '출발지 주소', '도착지 주소', '상품', '물품정보(유의사항)',
+                '결제금액', '결제타입'
+        ]
+        ]
 
-        Raw_o.columns = ['오더(운송장)번호',
-                        '타임스탬프',
-                        '단건 발송인가요?',
-                        '착불 여부',
-                        '왕복 여부',
-                        '[퀵] 급송 선택',
-                        '신청하는 분 회사명',
-                        '부서명',
-                        '이름',
-                        '연락처',
-                        '출발지 주소(도로명 주소)',
-                        '도착지 주소(도로명 주소)',
-                        '서비스 선택',
-                        '배송 시 유의사항',
-                        '개인 발송 여부',
-                        '배송 메모',
-                        '비고(메일룸 메모)']
+
+                
+        # 20240716 주문데이터 에서 특정 키워드 제외
+        Raw_o = Raw_o[Raw_o['그룹명']!='.']
+        Raw_o = Raw_o[Raw_o['착불여부']!='착불']
+        Raw_o = Raw_o[Raw_o['주문상태']!='취소']
+        Raw_o = Raw_o[~Raw_o['결제타입'].isin(['카드 등록 결제', '현장결제'])]
+
+        # 20240716 주문데이터 전처리
+        Raw_o['그룹명'] = Raw_o['그룹명'].str.strip()
+        Raw_o.fillna(0,inplace=True)
         
-        # 20230104 예외사항 처리
-        Raw_o = Raw_o[Raw_o['신청하는 분 회사명']!='.']
-        Raw_o = Raw_o[Raw_o['개인 발송 여부']!='개인적으로 발송합니다.']
-        # Raw_o = Raw_o[Raw_o['개인 발송 여부']!='회사 계산서 처리']
-        
-        # 2023-02-19 Trim 처리
-        Raw_o['신청하는 분 회사명'] = Raw_o['신청하는 분 회사명'].str.strip()
-        
-        Table_name.columns = ['신청하는 분 회사명', '회사명']
-        Error_Table_name = Table_name[Table_name.duplicated(subset = '신청하는 분 회사명')]
-        if Error_Table_name['신청하는 분 회사명'].count() != 0:
-                with pd.ExcelWriter(Save_path_ + r'/회사명중복확인.xlsx') as writer:
+        #20240716 회사명 테이블 정리
+        Table_name.columns = ['그룹명', '회사명']
+        Error_Table_name = Table_name[Table_name.duplicated(subset = '그룹명')]
+        if Error_Table_name['그룹명'].count() != 0:
+                with pd.ExcelWriter(Save_path_ + r'/회사명 중복 확인.xlsx') as writer:
                         Error_Table_name.to_excel(writer, sheet_name='회사명중복')
                 raise Exception('중복 입력된 회사명 히스토리(고객사 입력 회사명)가 있습니다. 회사명 테이블을 확인하시어 중복값을 제거해주세요.')
         else:
                 pass
         
+        #20240716 프리미엄 테이블 정리
         Table_premium = Table_premium[['빌딩명', '이름', '프리미엄 상태', '요금 타입']]
-        Raw_o.fillna(0,inplace=True)
-
-        # 데이터 정리
-        Raw_o = Raw_o[Raw_o['단건 발송인가요?']!=0]
         Table_premium = Table_premium.fillna('')
         Table_premium_on = Table_premium[Table_premium['프리미엄 상태']=='서비스 중']
         
         #완전성 확인
-        Raw_o = pd.merge(Raw_o,Table_name, on='신청하는 분 회사명', how='left')
-        Raw_o['회사명'].fillna('Error', inplace=True)
-        Error_Table = Raw_o[Raw_o['회사명']=='Error']
-        if Error_Table['회사명'].count() != 0:
-                with pd.ExcelWriter(Save_path_ + r'/회사명확인.xlsx') as writer:
-                        Error_Table.to_excel(writer, sheet_name='회사명')
+        Raw_o = pd.merge(Raw_o,Table_name, on='그룹명', how='left')
+        Raw_o['그룹명'].fillna('Error', inplace=True)
+        Error_Table = Raw_o[Raw_o['그룹명']=='Error']
+        if Error_Table['그룹명'].count() != 0:
+                with pd.ExcelWriter(Save_path_ + r'/예외사항_회사명 테이블에 없는 그룹명.xlsx') as writer:
+                        Error_Table.to_excel(writer, sheet_name='회사명 테이블 업데이트')
                 raise Exception('확인되지 않은 고객명이 식별되었습니다. 회사명 테이블을 확인해주세요.')
         else:
                 pass
@@ -266,8 +237,8 @@ def Get_Table_Mailroom(Raw_h,Raw_d,Raw_s,Raw_o,Raw_t,Table_premium,Table_name,Ta
         Error_Compnm['빌딩명'].fillna('Error',inplace=True)
         Error_Compnm = Error_Compnm[Error_Compnm['빌딩명']=='Error']
         if Error_Compnm['빌딩명'].count() != 0:
-                with pd.ExcelWriter(Save_path_ + r'/입주사확인.xlsx') as writer:
-                        Error_Compnm.to_excel(writer, sheet_name='입주사')
+                with pd.ExcelWriter(Save_path_ + r'/예외사항_입주사 테이블에 없는 그룹명.xlsx') as writer:
+                        Error_Compnm.to_excel(writer, sheet_name='입주사 테이블 업데이트')
                 raise Exception('입주사 테이블에 누락된 고객명이 식별되었습니다. 입주사 테이블을 확인해주세요.')
         else:
                 pass
@@ -276,42 +247,41 @@ def Get_Table_Mailroom(Raw_h,Raw_d,Raw_s,Raw_o,Raw_t,Table_premium,Table_name,Ta
         Error_account['소재지'].fillna('Error',inplace=True)
         Error_account = Error_account[Error_account['소재지']=='Error']
         if Error_account['소재지'].count() != 0:
-                with pd.ExcelWriter(Save_path_ + r'/소재지확인.xlsx') as writer:
-                        Error_Compnm.to_excel(writer, sheet_name='소재지')
+                with pd.ExcelWriter(Save_path_ + r'/예외사항_소재지 테이블에 없는 빌딩명.xlsx') as writer:
+                        Error_Compnm.to_excel(writer, sheet_name='소재지 테이블 업데이트')
                 raise Exception('소재지 테이블에 누락된 빌딩명이 식별되었습니다. 소재지 테이블을 확인해주세요.')
         else:
                 pass
 
         # 날짜 데이터 입력
-        #Raw_o['타임스탬프'] = Raw_o['타임스탬프'].str.replace('오전','AM')
-        #Raw_o['타임스탬프'] = Raw_o['타임스탬프'].str.replace('오후','PM')
-        #Raw_o['타임스탬프'] = Raw_o['타임스탬프'].str.replace('\. ','-', regex=True)
-        #Raw_o['타임스탬프'] = pd.to_datetime(Raw_o['타임스탬프'] , format='%Y-%m-%d %p %I:%M:%S')
-        
-        Raw_o['타임스탬프'] = pd.to_datetime(Raw_o['타임스탬프'].replace('\..*','',regex=True) , format='%Y-%m-%d %I:%M:%S')
+        #Raw_o['생성일시'] = Raw_o['생성일시'].str.replace('오전','AM')
+        #Raw_o['생성일시'] = Raw_o['생성일시'].str.replace('오후','PM')
+        #Raw_o['생성일시'] = Raw_o['생성일시'].str.replace('\. ','-', regex=True)
+        #Raw_o['생성일시'] = pd.to_datetime(Raw_o['생성일시'] , format='%Y-%m-%d %p %I:%M:%S')
+        #Raw_o['생성일시'] = pd.to_datetime(Raw_o['생성일시'].replace('\..*','',regex=True) , format='%Y-%m-%d %I:%M:%S %p')
+        Raw_o['생성일시'] = pd.to_datetime(Raw_o['생성일시'] , format='%Y-%m-%d %H:%M:%S')
+        Raw_o['신청날짜'] = pd.to_datetime(Raw_o['생성일시']).dt.date
+        Raw_o['신청시간'] = pd.to_datetime(Raw_o['생성일시']).dt.time
 
-        Raw_o['신청날짜'] = pd.to_datetime(Raw_o['타임스탬프']).dt.date
-        Raw_o['신청시간'] = pd.to_datetime(Raw_o['타임스탬프']).dt.time
-
-        # 추가필요 열 가공
+        # 추가필요 열 가공 20240716 필요없어보이지만 남겨둠
         Raw_o['결제완료여부'] = 0
-        Raw_o['카드, 착불'] = np.where(Raw_o['비고(메일룸 메모)'].str.contains('카드'), 'O', 'X')
+        Raw_o['카드, 착불'] = np.where(Raw_o['결제타입'].str.contains('카드'), 'O', 'X')
 
                 
         # 운송사 데이터 입력
         Raw_o['운송사'] = np.where(
-                                Raw_o['오더(운송장)번호'].str.contains('2-', na = False),
+                                Raw_o['운송장번호'].str.startswith('3-', na=False), #20240716 2-에서 3-으로 수정
                                 '24시화물',
                                 np.where(
-                                        '택배' == Raw_o['서비스 선택'],
+                                        '택배' == Raw_o['배송수단'],
                                         '택배', 
-                                        np.where('퀵' == Raw_o['서비스 선택'],
-                                                np.where(
-                                                        '24시화물' != Raw_o['배송 시 유의사항'],
-                                                        '손자KMC',
-                                                        'Error'),
-                                                'Error')
-                                        )
+                                        # np.where('오토바이 급송' == Raw_o['배송수단'], # 확인필요. 정산서에 안쓰는 부분
+                                                #np.where(
+                                                 #       '24시화물' != Raw_o['물품정보(유의사항)'], # 확인필요. 정산서에 안쓰는 부분인듯
+                                                        '손자KMC')
+                                                  #      'Error'),
+                                                #'Error')
+                                        #)
                                 )
         Raw_o['마진율'] = np.where(
                                 Raw_o['운송사']=='택배',
@@ -330,48 +300,54 @@ def Get_Table_Mailroom(Raw_h,Raw_d,Raw_s,Raw_o,Raw_t,Table_premium,Table_name,Ta
 
         # join 전 가공
         ##택배 Raw 데이터 가공
-        price_dict = {'극소': 4500, '소': 4500, '중': 6000, '대': 9000, '대1': 9000}
-        Raw_t.rename(columns={'운송장번호':'오더(운송장)번호'},inplace=True)
+        # price_dict = {'극소': 4500, '소': 4500, '중': 6000, '대': 9000, '대1': 9000}
+        price_dict = Table_price.set_index('구분')['금액'].to_dict() # 테이블에서 읽어오도록 함
+        Raw_t.rename(columns={'운송장번호':'운송장번호'},inplace=True)
         Raw_t.rename(columns={'박스타입':'운임타입'},inplace=True)
-        Raw_t = Raw_t[['오더(운송장)번호','운임타입']]
+        Raw_t = Raw_t[['운송장번호','운임타입']]
         Raw_t['청구가(부가세제외)_t'] = Raw_t['운임타입'].map(price_dict)
 
 
         ## 손자 Raw 데이터 가공
-        Raw_s.rename(columns={'오더번호':'오더(운송장)번호'}, inplace=True)
+        Raw_s.rename(columns={'오더번호':'운송장번호'}, inplace=True)
         Raw_s['청구가(부가세제외)_s'] = Raw_s['고객적용요금']*(1-Raw_s['할인율']/100)
         Raw_s['원가(부가세제외)_s'] = Raw_s['고객적용요금']*(1-Raw_s['수수료율']/100)
-        Raw_s = Raw_s[['오더(운송장)번호','청구가(부가세제외)_s','원가(부가세제외)_s','거리-km']]
+        Raw_s = Raw_s[['운송장번호','청구가(부가세제외)_s','원가(부가세제외)_s','거리-km']]
 
         ## 화물 Raw 데이터 가공
-        Raw_h.rename(columns={'화물번호':'오더(운송장)번호', '운송료':'원가(부가세제외)_h'}, inplace=True)
+        Raw_h.rename(columns={'화물번호':'운송장번호', '운송료':'원가(부가세제외)_h'}, inplace=True)
         Raw_h['청구가(부가세제외)_h'] = np.floor(Raw_h['원가(부가세제외)_h'] / 0.85 / 100) * 100     
-        Raw_h = Raw_h[['오더(운송장)번호','원가(부가세제외)_h','차량종류','청구가(부가세제외)_h']]
+        Raw_h = Raw_h[['운송장번호','원가(부가세제외)_h','차량종류','청구가(부가세제외)_h']]
 
         # JOIN
 
-        Raw_o = pd.merge(Raw_o,Raw_t, on='오더(운송장)번호', how='left')
-        Raw_o = pd.merge(Raw_o,Raw_s, on='오더(운송장)번호', how='left')
-        Raw_o = pd.merge(Raw_o,Raw_h, on='오더(운송장)번호', how='left')
+        Raw_o['운송장번호'] = Raw_o['운송장번호'].astype(str)
+        Raw_s['운송장번호'] = Raw_s['운송장번호'].astype(str)
+        Raw_t['운송장번호'] = Raw_t['운송장번호'].astype(str)
+
+        Raw_o = pd.merge(Raw_o,Raw_t, on='운송장번호', how='left')
+        Raw_o = pd.merge(Raw_o,Raw_s, on='운송장번호', how='left')
+        Raw_o = pd.merge(Raw_o,Raw_h, on='운송장번호', how='left')
         Raw_o.fillna(0,inplace=True)
         
         
-        condition = (Raw_o['서비스 선택'] == '퀵') & (Raw_o['운송사'] == '손자KMC') & (Raw_o['청구가(부가세제외)_s'] < 6364) # 6364원 미만 손자퀵 6363.636364
-        Raw_o.loc[condition, '청구가(부가세제외)_s'] = 6363.636364
+        # condition = (Raw_o['배송수단'] != '택배') & (Raw_o['운송사'] == '손자KMC') & (Raw_o['청구가(부가세제외)_s'] < 6364) # 6364원 미만 손자퀵 6363.636364 << 20240730 로직삭제
+        # Raw_o.loc[condition, '청구가(부가세제외)_s'] = 6363.636364
 
                 
         # JOIN 후 가공
 
-        Raw_o['운임타입'] = np.where(Raw_o['서비스 선택']=='택배',
+        Raw_o['운임타입'] = np.where(Raw_o['배송수단']=='택배',
                                 Raw_o['운임타입'],
                                 np.where(                               
-                                        Raw_o['[퀵] 급송 선택']=='급송 요청',
+                                        Raw_o['배송수단']=='오토바이 급송',
                                         '급송',
                                         '일반'
                                         )
                                 )
-        Raw_o['청구가(부가세제외)'] = np.where(Raw_o['운송사']=='24시화물', Raw_o['청구가(부가세제외)_h'],
-                                np.where(Raw_o['운송사']=='손자KMC', Raw_o['청구가(부가세제외)_s'],
+        Raw_o['청구가(부가세제외)'] = np.where(Raw_o['운송사']=='24시화물', Raw_o['결제금액']/1.1, # np.where(Raw_o['운송사']=='24시화물', Raw_o['청구가(부가세제외)_h'],
+                                
+                                np.where(Raw_o['운송사']=='손자KMC', Raw_o['결제금액']/1.1, #  np.where(Raw_o['운송사']=='손자KMC', Raw_o['청구가(부가세제외)_s']
                                 np.where(Raw_o['운송사']=='택배', Raw_o['청구가(부가세제외)_t'], 'Error')))
 
         Raw_o['청구가(부가세제외)'] =Raw_o['청구가(부가세제외)'].astype(float)
@@ -400,7 +376,7 @@ def Get_Table_Mailroom(Raw_h,Raw_d,Raw_s,Raw_o,Raw_t,Table_premium,Table_name,Ta
 
         Raw_o['차량정보'] = np.where(Raw_o['운송사']=='택배','택배',
                         np.where(Raw_o['운송사']=='손자KMC',
-                                        np.where(Raw_o['배송 메모'].str.contains('다마스'),'다마스','일반'),
+                                        np.where(Raw_o['배송수단'].str.contains('다마스'),'다마스','일반'), #배송수단으로
                         np.where(Raw_o['운송사']=='24시화물',Raw_o['차량종류'],'Error')))
         
         Year_ = pd.to_datetime(Raw_o['신청날짜']).dt.year
@@ -471,7 +447,7 @@ def Get_Table_Mailroom(Raw_h,Raw_d,Raw_s,Raw_o,Raw_t,Table_premium,Table_name,Ta
         
         return Raw_o, Raw_d, Table_premium, Table_premium_on
 
-def Mail_Room_def(Date_, Report_Date, Flat_Rate, Ex_Rate, Ex_Count, Fee, Raw_o, Raw_d, Table_premium, Table_premium_on):    
+def Mail_Room_def(Date_, Report_Date, Flat_Rate, Ex_Rate, Ex_Count, Fee, Raw_o, Raw_d, Table_premium, Table_premium_on, Table_Formula):    
 
 
         #프리미엄 딜리버리 가공
@@ -495,15 +471,15 @@ def Mail_Room_def(Date_, Report_Date, Flat_Rate, Ex_Rate, Ex_Count, Fee, Raw_o, 
                 ws_p['C4'] = Report_Date
                 # RAW 데이터 붙여넣기                
                 Filtered_Raw_o = Raw_o[Raw_o['회사명']==CompNm]
-                Filtered_Raw_o = Filtered_Raw_o[['신청날짜','이름','부서명','출발지 주소(도로명 주소)','도착지 주소(도로명 주소)','[퀵] 급송 선택','왕복 여부','청구가(부가세제외)']]
-                #for r_idx, row in enumerate(dataframe_to_rows(Filtered_Raw_o,index=False,header=True), 1):
+                Filtered_Raw_o = Filtered_Raw_o[['신청날짜','주문자 이름','이용사유','출발지 주소','도착지 주소','배송수단','편도/왕복','청구가(부가세제외)']]
+                #for r_idx, row in enumerate(dataframe_to_rows(Filtered_Raw_o,in도착지, 1):
                 #        for c_idx, value in enumerate(row, 1):
                 #                ws_o.cell(row=r_idx, column=c_idx, value=value)
                 
                                 
                 ws_q = wb_mailroom['퀵발송']
-                Quick_Raw_o = Filtered_Raw_o[Filtered_Raw_o['[퀵] 급송 선택']!='해당없음(택배)']
-                Row_count_q = Quick_Raw_o['[퀵] 급송 선택'].count()
+                Quick_Raw_o = Filtered_Raw_o[Filtered_Raw_o['배송수단']!='택배'] # 20240716 해당없음(택배) > 택배
+                Row_count_q = Quick_Raw_o['배송수단'].count()
                 if Row_count_q != 0:
                         header_q = Quick_Raw_o.iloc[0]
                         Quick_Raw_o = Quick_Raw_o[1:]
@@ -521,8 +497,8 @@ def Mail_Room_def(Date_, Report_Date, Flat_Rate, Ex_Rate, Ex_Count, Fee, Raw_o, 
                 ws_q['I'+str(Row_count_q+7-2)] = '=SUM(' + 'I'+str(Row_count_q+7+1-2) + ':' + 'I'+str(Row_count_q+7+2-2) + ')'
                                 
                 ws_t = wb_mailroom['택배발송']
-                TB_Raw_o = Filtered_Raw_o[Filtered_Raw_o['[퀵] 급송 선택']=='해당없음(택배)']
-                Row_count_T = TB_Raw_o['[퀵] 급송 선택'].count()
+                TB_Raw_o = Filtered_Raw_o[Filtered_Raw_o['배송수단']=='택배'] #20240716 해당없음(택배) > 택배
+                Row_count_T = TB_Raw_o['배송수단'].count()
                 if Row_count_T != 0:
                         header_TB = TB_Raw_o.iloc[0]
                         TB_Raw_o = TB_Raw_o[1:]
@@ -544,7 +520,7 @@ def Mail_Room_def(Date_, Report_Date, Flat_Rate, Ex_Rate, Ex_Count, Fee, Raw_o, 
                 Table_premium_tower = Table_premium[Table_premium['회사명']==CompNm]
                 Tower = Table_premium_tower['빌딩명'].iloc[0]
                 
-                ws_p['B2']= Tower +' 메일룸 사용 내역서'
+                ws_p['B2']= Tower +' 얼른 딜리버리 사용 내역서'
                 ws_p['C5']= Table_account[Table_account['빌딩명']==Tower]['소재지'].iloc[0]
                 
                 ws_d = wb_mailroom['일자별배송건수']
@@ -552,15 +528,21 @@ def Mail_Room_def(Date_, Report_Date, Flat_Rate, Ex_Rate, Ex_Count, Fee, Raw_o, 
                 
                 Filtered_Table_p = Table_premium_on[Table_premium_on['이름']==CompNm]
                 if Filtered_Table_p['이름'].count() != 0:
+
+                        formula_dict = Table_Formula.set_index('구분')['수식'].to_dict()
+                        Filtered_Table_p['수식'] = Filtered_Table_p['빌딩명'].map(formula_dict)
+                        Filtered_Table_p['수식'].fillna(0,inplace=True)
+                        ws_p['E17'] = Filtered_Table_p['수식'].iloc[0]
+                        
                         if Filtered_Table_p['요금 타입'].iloc[0] == '건별(500)':
                                 ws_p['D17'] = '건별 요금제'
-                                ws_p['E17'] = '=' + str(Fee) + '*C17'
+                        #        ws_p['E17'] = '=' + str(Fee) + '*C17'
                         elif Filtered_Table_p['요금 타입'].iloc[0] == '월이용료':
                                 ws_p['D17'] = '정액제'
-                                ws_p['E17'] = '=' + str(Flat_Rate)+'+IF(C17>' + str(Ex_Count) + ',(C17-' + str(Ex_Count) + ')*' + str(Ex_Rate) +',0)'
+
                         elif Filtered_Table_p['요금 타입'].iloc[0] == '무료':
                                 ws_p['D17'] = '무료'
-                                ws_p['E17'] = 0
+                        #        ws_p['E17'] = 0
                         else:
                                 pass
                         
@@ -576,7 +558,7 @@ def Mail_Room_def(Date_, Report_Date, Flat_Rate, Ex_Rate, Ex_Count, Fee, Raw_o, 
                         ws_p['B17'] = '프리미엄 서비스'
                         
                 
-                filename = '\\' + CompNm+ ')'+ Tower + ' 메일룸' + Date_[-2:] + '월 사용내역_KMPNS.xlsx'
+                filename = '\\' + CompNm+ ')'+ Tower + ' 얼른 딜리버리_' + Date_[-2:] + '월 이용내역_KMPNS.xlsx'
 
                 
                 
@@ -618,7 +600,7 @@ def Mail_Room_def(Date_, Report_Date, Flat_Rate, Ex_Rate, Ex_Count, Fee, Raw_o, 
                 Table_premium_tower = Table_premium[Table_premium['회사명']==CompNm_p]
                 Tower = Table_premium_tower['빌딩명'].iloc[0]
                 
-                ws_p['B2']= Tower +' 메일룸 사용 내역서'
+                ws_p['B2']= Tower +' 얼른 딜리버리 사용 내역서'
                 ws_p['C5']= Table_account[Table_account['빌딩명']==Tower]['소재지'].iloc[0]
                 
                 ws_d = wb_mailroom['일자별배송건수']
@@ -628,15 +610,20 @@ def Mail_Room_def(Date_, Report_Date, Flat_Rate, Ex_Rate, Ex_Count, Fee, Raw_o, 
                 if Filtered_Table_p['이름'].count() != 0:
                         if Filtered_Table_p['요금 타입'].iloc[0] == '건별(500)':
                                 ws_p['D17'] = '건별 요금제'
-                                ws_p['E17'] = '=' + str(Fee) + '*C17'
+                        #         ws_p['E17'] = '=' + str(Fee) + '*C17'
                         elif Filtered_Table_p['요금 타입'].iloc[0] == '월이용료':
                                 ws_p['D17'] = '정액제'
-                                ws_p['E17'] = '=' + str(Flat_Rate)+'+IF(C17>' + str(Ex_Count) + ',(C17-' + str(Ex_Count) + ')*' + str(Ex_Rate) +',0)'
+                        #         ws_p['E17'] = '=' + str(Flat_Rate)+'+IF(C17>' + str(Ex_Count) + ',(C17-' + str(Ex_Count) + ')*' + str(Ex_Rate) +',0)'
                         elif Filtered_Table_p['요금 타입'].iloc[0] == '무료':
                                 ws_p['D17'] = '무료'
-                                ws_p['E17'] = 0
+                        #         ws_p['E17'] = 0
                         else:
                                 pass
+
+                        formula_dict = Table_Formula.set_index('구분')['수식'].to_dict()
+                        Filtered_Table_p['수식'] = Filtered_Table_p['빌딩명'].map(formula_dict)
+                        Filtered_Table_p['수식'].fillna(0,inplace=True)
+                        ws_p['E17'] = Filtered_Table_p['수식'].iloc[0]
                         
                         # 프리미엄 배송데이터
                         if CompNm_p in Raw_d.columns.tolist():
@@ -651,7 +638,7 @@ def Mail_Room_def(Date_, Report_Date, Flat_Rate, Ex_Rate, Ex_Count, Fee, Raw_o, 
                         ws_p['B17'] = '프리미엄 서비스'
                         
                 
-                filename = '\\' + CompNm_p+ ')'+ Tower + ' 메일룸_' + Date_[-2:] + '월 사용내역_KMPNS.xlsx'
+                filename = '\\' + CompNm_p+ ')'+ Tower + ' 얼른 딜리버리_' + Date_[-2:] + '월 이용내역_KMPNS.xlsx'
 
                 
                 
@@ -664,11 +651,11 @@ def Mail_Room_def(Date_, Report_Date, Flat_Rate, Ex_Rate, Ex_Count, Fee, Raw_o, 
 if __name__ == '__main__':
         
         #Input파일
-        Dir_Raw_h = '\input\Data_24시화물.xlsx'
-        Dir_Raw_d = '\input\Data_딜리버리.xlsx'
-        Dir_Raw_s = '\input\Data_손자.csv'
-        Dir_Raw_o = '\input\Data_신청내역.xlsx'
-        Dir_Raw_t = '\input\Data_택배.xlsx'
+        Dir_Raw_h = r'\input\Data_24시화물.xlsx'
+        Dir_Raw_d = r'\input\Data_딜리버리.xlsx'
+        Dir_Raw_s = r'\input\Data_손자.csv'
+        Dir_Raw_o = r'\input\Data_신청내역.xlsx'
+        Dir_Raw_t = r'\input\Data_택배2.xlsx'
         
         #기본파일
         mailTableXl = 'KMPNS_메일룸_Table.xlsx'
@@ -678,6 +665,8 @@ if __name__ == '__main__':
         Dir_Table_name = getRngTable(mailTableXl, 'GoogleName')    #'\Table_회사명.xlsx'
         Dir_Table_account = getRngTable(mailTableXl, 'Location')   #'\Table_소재지.csv'
         Dir_Table_setting = getRngTable(mailTableXl, 'Setting')    #'\Table_설정.xlsx'
+        Dir_Table_Price = getRngTable(mailTableXl, 'Price')    #20240716 규격별 택배비 테이블
+        Dir_Table_Formula = getRngTable(mailTableXl, 'Formula')
 
         Raw_h = pd.read_excel(Path_+Dir_Raw_h)
         Raw_d = pd.read_excel(Path_+Dir_Raw_d)
@@ -688,14 +677,16 @@ if __name__ == '__main__':
         Table_name = Dir_Table_name.input_to_df()          #pd.read_excel(Path_+Dir_Table_name)
         Table_account = Dir_Table_account.input_to_df()    #pd.read_csv(Path_+Dir_Table_account)
         Table_set = Dir_Table_setting.input_to_df()        #pd.read_excel(Path_+Dir_Table_setting)
+        Table_price = Dir_Table_Price.input_to_df()
+        Table_Formula = Dir_Table_Formula.input_to_df()
 
         createDirectory(Path_+'\\'+datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
                 
         Save_path_ = Path_+'\\'+datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
         Date_, Report_Date, Flat_Rate, Ex_Rate, Ex_Count, Fee = Get_Setting_Data(Table_set)
-        Raw_o, Raw_d, Table_premium, Table_premium_on = Get_Table_Mailroom(Raw_h,Raw_d,Raw_s,Raw_o,Raw_t,Table_premium,Table_name,Table_account)
-        Mail_Room_def(Date_, Report_Date, Flat_Rate, Ex_Rate, Ex_Count, Fee, Raw_o, Raw_d, Table_premium, Table_premium_on)
+        Raw_o, Raw_d, Table_premium, Table_premium_on = Get_Table_Mailroom(Raw_h,Raw_d,Raw_s,Raw_o,Raw_t,Table_premium,Table_name,Table_account, Table_price, Table_Formula)
+        Mail_Room_def(Date_, Report_Date, Flat_Rate, Ex_Rate, Ex_Count, Fee, Raw_o, Raw_d, Table_premium, Table_premium_on, Table_Formula)
         
         
         

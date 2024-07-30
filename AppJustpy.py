@@ -328,6 +328,7 @@ async def getFileData_Convert(self, msg):
         la.Dir_Table_name = la.getRngTable(la.mailTableXl, 'GoogleName')    #'\Table_회사명.xlsx'
         la.Dir_Table_account = la.getRngTable(la.mailTableXl, 'Location')   #'\Table_소재지.csv'
         la.Dir_Table_setting = la.getRngTable(la.mailTableXl, 'Setting')    #'\Table_설정.xlsx'
+        la.Dir_Table_Price = la.getRngTable(la.mailTableXl, 'Price')
         la.Raw_h = pd.read_excel(la.Dir_Raw_h)
         la.Raw_d = pd.read_excel(la.Dir_Raw_d)
         la.Raw_s = pd.read_csv(la.Dir_Raw_s, encoding='CP949')
@@ -343,7 +344,7 @@ async def getFileData_Convert(self, msg):
         la.Table_name = la.Dir_Table_name.input_to_df()          #pd.read_excel(Path_+Dir_Table_name)
         la.Table_account = la.Dir_Table_account.input_to_df()    #pd.read_csv(Path_+Dir_Table_account)
         la.Table_set = la.Dir_Table_setting.input_to_df()        #pd.read_excel(Path_+Dir_Table_setting)
-
+        la.Table_price = la.Dir_Table_Price.input_to_df()  
         print('<<테이블 INPUT 완료>>')
 
 
@@ -383,7 +384,7 @@ async def getFileData_Convert(self, msg):
 
 
 
-        la.Raw_o, la.Raw_d, la.Table_premium, la.Table_premium_on = la.Get_Table_Mailroom(la.Raw_h,la.Raw_d,la.Raw_s,la.Raw_o,la.Raw_t,la.Table_premium,la.Table_name,la.Table_account)
+        la.Raw_o, la.Raw_d, la.Table_premium, la.Table_premium_on = la.Get_Table_Mailroom(la.Raw_h,la.Raw_d,la.Raw_s,la.Raw_o,la.Raw_t,la.Table_premium,la.Table_name,la.Table_account, la.Table_price)
     
         la.Mail_Room_def(la.Date_, la.Report_Date, la.Flat_Rate, la.Ex_Rate, la.Ex_Count, la.Fee, la.Raw_o, la.Raw_d, la.Table_premium, la.Table_premium_on)
 

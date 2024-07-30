@@ -1,0 +1,3 @@
+signtool.exe sign /v /f "Robotic&AILab.pfx" /p G4QS836ncUGOYO9UC;J+-yd:cT57vR /tr http://timestamp.digicert.com /td sha256 /fd sha256 "Manager.exe"
+
+signtool.exe sign /v /f "Robotic&AILab.pfx" /p G4QS836ncUGOYO9UC;J+-yd:cT57vR /tr http://timestamp.digicert.com /td sha256 /fd sha256 "대규모기업집단현황공시_변환기.exe"
