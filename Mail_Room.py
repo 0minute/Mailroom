@@ -97,7 +97,7 @@ class getRngTable(object):
         self.rngName = rngName
         
         # xls 속성 정의 -> 실제로 엑셀 파일을 불러와서 속성으로 정의함
-        self.xls = xl.load_workbook(self.file_full_path,read_only=False, keep_vba=True,data_only=True)
+        self.xls = xl.load_workbook(self.file_full_path,read_only=True, keep_vba=True,data_only=True)
         
         # rngName으로 받은 table 정보 가져오기
         address = list(self.xls.defined_names[rngName].destinations)
@@ -217,7 +217,7 @@ def Get_Table_Mailroom(Raw_h,Raw_d,Raw_s,Raw_o,Raw_t,Table_premium,Table_name,Ta
                 pass
         
         #20240716 프리미엄 테이블 정리
-        Table_premium = Table_premium[['빌딩명', '이름', '프리미엄 상태', '요금 타입']]
+        Table_premium = Table_premium[['빌딩명', '이름', '프리미엄 상태', '요금 타입', '계산구조', '계약금액']]
         Table_premium = Table_premium.fillna('')
         Table_premium_on = Table_premium[Table_premium['프리미엄 상태']=='서비스 중']
         
@@ -232,7 +232,7 @@ def Get_Table_Mailroom(Raw_h,Raw_d,Raw_s,Raw_o,Raw_t,Table_premium,Table_name,Ta
         else:
                 pass
         
-        Table_premium.columns = ['빌딩명', '회사명', '프리미엄 상태', '요금 타입']
+        Table_premium.columns = ['빌딩명', '회사명', '프리미엄 상태', '요금 타입', '계산구조', '계약금액']
         Error_Compnm = pd.merge(Raw_o,Table_premium, on='회사명', how='left')
         Error_Compnm['빌딩명'].fillna('Error',inplace=True)
         Error_Compnm = Error_Compnm[Error_Compnm['빌딩명']=='Error']
@@ -310,13 +310,13 @@ def Get_Table_Mailroom(Raw_h,Raw_d,Raw_s,Raw_o,Raw_t,Table_premium,Table_name,Ta
 
         ## 손자 Raw 데이터 가공
         Raw_s.rename(columns={'오더번호':'운송장번호'}, inplace=True)
-        Raw_s['청구가(부가세제외)_s'] = Raw_s['고객적용요금']*(1-Raw_s['할인율']/100)
+        Raw_s['청구가(부가세제외)_s'] = Raw_s['고객적용요금']*(1-Raw_s['할인율']/100) # 20240730 수정 후 안쓰는 컬럼
         Raw_s['원가(부가세제외)_s'] = Raw_s['고객적용요금']*(1-Raw_s['수수료율']/100)
         Raw_s = Raw_s[['운송장번호','청구가(부가세제외)_s','원가(부가세제외)_s','거리-km']]
 
         ## 화물 Raw 데이터 가공
         Raw_h.rename(columns={'화물번호':'운송장번호', '운송료':'원가(부가세제외)_h'}, inplace=True)
-        Raw_h['청구가(부가세제외)_h'] = np.floor(Raw_h['원가(부가세제외)_h'] / 0.85 / 100) * 100     
+        Raw_h['청구가(부가세제외)_h'] = np.floor(Raw_h['원가(부가세제외)_h'] / 0.85 / 100) * 100 # 20240730 수정 후 안쓰는 컬럼 
         Raw_h = Raw_h[['운송장번호','원가(부가세제외)_h','차량종류','청구가(부가세제외)_h']]
 
         # JOIN
@@ -529,11 +529,24 @@ def Mail_Room_def(Date_, Report_Date, Flat_Rate, Ex_Rate, Ex_Count, Fee, Raw_o, 
                 Filtered_Table_p = Table_premium_on[Table_premium_on['이름']==CompNm]
                 if Filtered_Table_p['이름'].count() != 0:
 
-                        formula_dict = Table_Formula.set_index('구분')['수식'].to_dict()
-                        Filtered_Table_p['수식'] = Filtered_Table_p['빌딩명'].map(formula_dict)
+                        # 두 컬럼을 인덱스로 설정하여 딕셔너리 생성
+                        formula_dict = Table_Formula.set_index(['구분', '계산구조'])['수식'].to_dict()
+
+                        # Filtered_Table_p에서 매핑할 때는 두 컬럼을 조합하여 매핑
+                        Filtered_Table_p['수식'] = Filtered_Table_p.apply(
+                            lambda row: formula_dict.get((row['빌딩명'], row['계산구조'])), 
+                            axis=1
+                        )
                         Filtered_Table_p['수식'].fillna(0,inplace=True)
-                        ws_p['E17'] = Filtered_Table_p['수식'].iloc[0]
                         
+                        # 수식에 "계약금액" 문자열이 있으면 실제 계약금액으로 대체
+                        if '계약금액' in str(Filtered_Table_p['수식'].iloc[0]):
+                            contract_amount = Filtered_Table_p['계약금액'].iloc[0]
+                            formula = str(Filtered_Table_p['수식'].iloc[0]).replace('계약금액', str(contract_amount))
+                            ws_p['E17'] = formula
+                        else:
+                            ws_p['E17'] = Filtered_Table_p['수식'].iloc[0]
+
                         if Filtered_Table_p['요금 타입'].iloc[0] == '건별(500)':
                                 ws_p['D17'] = '건별 요금제'
                         #        ws_p['E17'] = '=' + str(Fee) + '*C17'
@@ -620,10 +633,25 @@ def Mail_Room_def(Date_, Report_Date, Flat_Rate, Ex_Rate, Ex_Count, Fee, Raw_o, 
                         else:
                                 pass
 
-                        formula_dict = Table_Formula.set_index('구분')['수식'].to_dict()
-                        Filtered_Table_p['수식'] = Filtered_Table_p['빌딩명'].map(formula_dict)
+
+                        # 두 컬럼을 인덱스로 설정하여 딕셔너리 생성
+                        formula_dict = Table_Formula.set_index(['구분', '계산구조'])['수식'].to_dict()
+
+                        # Filtered_Table_p에서 매핑할 때는 두 컬럼을 조합하여 매핑
+                        Filtered_Table_p['수식'] = Filtered_Table_p.apply(
+                            lambda row: formula_dict.get((row['빌딩명'], row['계산구조'])), 
+                            axis=1
+                        )
                         Filtered_Table_p['수식'].fillna(0,inplace=True)
-                        ws_p['E17'] = Filtered_Table_p['수식'].iloc[0]
+                        
+                        # 수식에 "계약금액" 문자열이 있으면 실제 계약금액으로 대체
+                        if '계약금액' in str(Filtered_Table_p['수식'].iloc[0]):
+                            contract_amount = Filtered_Table_p['계약금액'].iloc[0]
+                            formula = str(Filtered_Table_p['수식'].iloc[0]).replace('계약금액', str(contract_amount))
+                            ws_p['E17'] = formula
+                        else:
+                            ws_p['E17'] = Filtered_Table_p['수식'].iloc[0]
+
                         
                         # 프리미엄 배송데이터
                         if CompNm_p in Raw_d.columns.tolist():
